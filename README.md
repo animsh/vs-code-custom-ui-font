@@ -8,7 +8,7 @@ This extension allows you to customize the UI font of Visual Studio Code. Design
 
   \!\[Change Font Command\]\(images/change-font-command.png\)
 
-> TODO: providing a short animation showcasing the process of using the command, and the before and after UI changes.
+https://github.com/animsh/vs-code-custom-ui-font/assets/68194471/ac0b5b2b-adc8-4e47-8df3-58df72a4da95
 
 ## Requirements
 
