@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-const fs = require('fs');
 const path = require('path');
+import { readFile, writeFile, promises as fsPromises } from 'fs';
 
 let extensionContext: vscode.ExtensionContext;
 let workbenchCSS = path.join(process.env.APPDATA, '..\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.css');
@@ -31,57 +31,94 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		let oldCSS = context.globalState.get('oldCSS');
-		let oldJS = context.globalState.get('oldJS');
+		let oldCSS: (string | undefined) = context.globalState.get('oldCSS');
+		let oldJS: (string | undefined) = context.globalState.get('oldJS');
+
+		console.log(oldCSS);
+		console.log(oldJS);
 
 		vscode.window.showInputBox({
 			prompt: 'Enter your font name',
 			placeHolder: 'Font Name - e.g. SF Pro Display'
-		}).then((userFont) => {
+		}).then(async (userFont) => {
 
 			if (!oldCSS) {
-				context.globalState.update('oldCSS', '.windows{font-family:Segoe WPC,Segoe UI,sans-serif}');
-				context.globalState.update('defaultCSS', '.windows{font-family:Segoe WPC,Segoe UI,sans-serif}');
+				context.globalState.update('oldCSS', 'Segoe WPC,Segoe UI');
+				context.globalState.update('defaultCSS', 'Segoe WPC,Segoe UI');
 				oldCSS = context.globalState.get('oldCSS');
 			}
 
 			if (!oldJS) {
-				context.globalState.update('oldJS', ':host-context(.windows) { font-family: "Segoe WPC", "Segoe UI", sans-serif; }');
-				context.globalState.update('defaultJS', ':host-context(.windows) { font-family: "Segoe WPC", "Segoe UI", sans-serif; }');
+				context.globalState.update('oldJS', '"Segoe WPC", "Segoe UI"');
+				context.globalState.update('defaultJS', '"Segoe WPC", "Segoe UI"');
 				oldJS = context.globalState.get('oldJS');
 			}
 
-			let newCSS = '.windows {font-family: ' + userFont + ', Segoe WPC, Segoe UI, sans-serif;text-rendering: optimizeLegibility;-webkit-font-smoothing: antialiased;	}';
-			let newJS = ":host-context(.windows) { font-family: '" + userFont + "', 'Segoe WPC', 'Segoe UI', sans-serif;}";
+			let isJS = await checkIfContainsAsync(workbenchJS, oldJS);
+			let isCSS = await checkIfContainsAsync(workbenchCSS, oldCSS);
 
-			updateFile(workbenchCSS, oldCSS, newCSS, context, 'oldCSS');
+			if (!isJS) {
+				context.globalState.update('oldJS', '"Segoe WPC", "Segoe UI"');
+				context.globalState.update('defaultJS', '"Segoe WPC", "Segoe UI"');
+				oldJS = context.globalState.get('oldJS');
+				isJS = true;
+			}
 
-			updateFile(workbenchJS, oldJS, newJS, context, 'oldJS');
+			if (!isCSS) {
+				context.globalState.update('oldCSS', 'Segoe WPC,Segoe UI');
+				context.globalState.update('defaultCSS', 'Segoe WPC,Segoe UI');
+				oldCSS = context.globalState.get('oldCSS');
+				isCSS = true;
+			}
 
-			vscode.window.showInformationMessage('Restart VS Code to see the changes', 'Reload').then(selection => {
-				if (selection === 'Reload') {
-					vscode.commands.executeCommand('workbench.action.reloadWindow');
-				}
-			});
+			if (isJS && isCSS) {
+				let newCSS = `${userFont},Segoe WPC,Segoe UI`;
+				let newJS = `${userFont}, "Segoe WPC", "Segoe UI"`;
+
+				updateFile(workbenchCSS, oldCSS, newCSS, context, 'oldCSS');
+
+				updateFile(workbenchJS, oldJS, newJS, context, 'oldJS');
+
+				vscode.window.showInformationMessage('Restart VS Code to see the changes', 'Reload').then(selection => {
+					if (selection === 'Reload') {
+						vscode.commands.executeCommand('workbench.action.reloadWindow');
+					}
+				});
+			}
 		});
 	});
 
 	context.subscriptions.push(disposable);
 }
 
+async function checkIfContainsAsync(filename: string, str: string | undefined) {
+	try {
+		const contents = await fsPromises.readFile(filename, 'utf-8');
+
+		if (str !== undefined) {
+			const result: boolean = contents.includes(str);
+			console.log(result);
+			return result;
+		}
+		return false;
+	} catch (err) {
+		console.log(err);
+	}
+}
+
 function updateFile(filePath: string, oldText: any, newText: any, context: vscode.ExtensionContext, type: string) {
-	fs.readFile(filePath, 'utf8', (err: any, data: any) => {
+	readFile(filePath, 'utf8', (err: any, data: string | any) => {
 		if (err) {
 			console.error(err);
 			return;
 		}
 
-		let updatedData = data.replace(
+		let updatedData = data.replaceAll(
 			oldText,
 			newText
 		);
 
-		fs.writeFile(filePath, updatedData, 'utf8', (err: any) => {
+		writeFile(filePath, updatedData, 'utf8', (err: any) => {
 			if (err) {
 				console.error(err);
 			} else {
