@@ -1,28 +1,62 @@
 import * as vscode from 'vscode';
-const path = require('path');
-import { readFile, writeFile, promises as fsPromises } from 'fs';
+import * as path from 'path';
+import { homedir } from 'os';
+import { readFileSync, readFile, writeFileSync, writeFile, promises as fsPromises, existsSync, mkdirSync, rmdir } from 'fs';
 
-let extensionContext: vscode.ExtensionContext;
-let workbenchCSS = path.join(process.env.APPDATA, '..\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.css');
-let workbenchJS = path.join(process.env.APPDATA, '..\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js');
+let appDataPath = process.env.APPDATA;
+let workbenchCSS = path.join(appDataPath as string, '..\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.css');
+let workbenchJS = path.join(appDataPath as string, '..\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\workbench.desktop.main.js');
 
+interface FontSettings {
+	currentFont: string;
+	defaultFont: string;
+}
+
+// Define the folder and file path
+const folderName = 'VSCodeUI';
+const fileName = 'settings.json';
+const documentsFolderPath = path.join(homedir(), 'Documents');
+const extensionFolderPath = path.join(documentsFolderPath, folderName);
+const filePath = path.join(extensionFolderPath, fileName);
+
+// Ensure that the extension's folder exists
+function ensureDirectoryExistence(dirPath: string): void {
+	if (!existsSync(dirPath)) {
+		console.log(`Creating directory: ${dirPath}`);
+		mkdirSync(dirPath, { recursive: true });
+	}
+}
+
+// Function to read JSON data
+function readSettings(): FontSettings | null {
+	try {
+		ensureDirectoryExistence(extensionFolderPath);
+		if (!existsSync(filePath)) {
+			console.log(`File not found. A new file will be created: ${filePath}`);
+			return null; // File doesn't exist yet
+		}
+		const rawData = readFileSync(filePath, 'utf8');
+		return JSON.parse(rawData);
+	} catch (error) {
+		console.error('Error reading the JSON file:', error);
+		return null;
+	}
+}
+
+// Function to write JSON data
+function writeSettings(settings: FontSettings): void {
+	try {
+		ensureDirectoryExistence(extensionFolderPath);
+		const data = JSON.stringify(settings, null, 2);
+		writeFileSync(filePath, data, 'utf8');
+		console.log(`Settings saved successfully in ${filePath}`);
+	} catch (error) {
+		console.error('Error writing to the JSON file:', error);
+	}
+}
 
 export function activate(context: vscode.ExtensionContext) {
-	extensionContext = context;
-
 	console.log('Congratulations, your extension "vscodeui" is now active!');
-
-	const previousVersion = context.globalState.get('vscodeVersion');
-	const currentVersion = vscode.version;
-
-	if (previousVersion !== currentVersion) {
-		console.log('VS Code was updated.');
-		extensionContext.globalState.update('oldCSS', undefined);
-		extensionContext.globalState.update('oldJS', undefined);
-	}
-
-	context.globalState.update('vscodeVersion', currentVersion);
-
 
 	let disposable = vscode.commands.registerCommand('extension.changeFont', () => {
 
@@ -31,60 +65,47 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
-		let oldCSS: (string | undefined) = context.globalState.get('oldCSS');
-		let oldJS: (string | undefined) = context.globalState.get('oldJS');
-
-		console.log(oldCSS);
-		console.log(oldJS);
+		let settings = readSettings();
+		if (!settings) {
+			console.log('Creating new settings since none were found.');
+			settings = { currentFont: 'Segoe WPC', defaultFont: 'Segoe WPC' };
+			writeSettings(settings);
+		}
 
 		vscode.window.showInputBox({
 			prompt: 'Enter your font name',
 			placeHolder: 'Font Name - e.g. SF Pro Display'
 		}).then(async (userFont) => {
 
-			if (!oldCSS) {
-				context.globalState.update('oldCSS', 'Segoe WPC,Segoe UI');
-				context.globalState.update('defaultCSS', 'Segoe WPC,Segoe UI');
-				oldCSS = context.globalState.get('oldCSS');
+			if (!userFont) {
+				return vscode.window.showInformationMessage('Enter Valid Font Name');
 			}
 
-			if (!oldJS) {
-				context.globalState.update('oldJS', '"Segoe WPC", "Segoe UI"');
-				context.globalState.update('defaultJS', '"Segoe WPC", "Segoe UI"');
-				oldJS = context.globalState.get('oldJS');
+			let isJSDefault = await checkIfContainsAsync(workbenchJS, settings?.defaultFont);
+			let isCSSDefault = await checkIfContainsAsync(workbenchCSS, settings?.defaultFont);
+			let isJSCurrent = await checkIfContainsAsync(workbenchJS, settings?.currentFont);
+			let isCSSCurrent = await checkIfContainsAsync(workbenchCSS, settings?.currentFont);
+
+			if (!isJSDefault || !isCSSDefault) {
+				if (!isJSCurrent || !isCSSCurrent) {
+					return vscode.window.showInformationMessage('Default Font Not Found in Workbench Files, Reinistall VS Code');
+				}
 			}
 
-			let isJS = await checkIfContainsAsync(workbenchJS, oldJS);
-			let isCSS = await checkIfContainsAsync(workbenchCSS, oldCSS);
-
-			if (!isJS) {
-				context.globalState.update('oldJS', '"Segoe WPC", "Segoe UI"');
-				context.globalState.update('defaultJS', '"Segoe WPC", "Segoe UI"');
-				oldJS = context.globalState.get('oldJS');
-				isJS = true;
+			try {
+				updateFile(workbenchJS, settings?.currentFont, userFont);
+				updateFile(workbenchCSS, settings?.currentFont, userFont);
+			} catch (error) {
+				console.error(error);
+				return vscode.window.showInformationMessage('An error occured, please try again');
 			}
 
-			if (!isCSS) {
-				context.globalState.update('oldCSS', 'Segoe WPC,Segoe UI');
-				context.globalState.update('defaultCSS', 'Segoe WPC,Segoe UI');
-				oldCSS = context.globalState.get('oldCSS');
-				isCSS = true;
-			}
+			vscode.window.showInformationMessage('Restart VS Code to see the changes', 'Reload').then(selection => {
+				if (selection === 'Reload') {
+					vscode.commands.executeCommand('workbench.action.reloadWindow');
+				}
+			});
 
-			if (isJS && isCSS) {
-				let newCSS = `${userFont},Segoe WPC,Segoe UI`;
-				let newJS = `${userFont}, "Segoe WPC", "Segoe UI"`;
-
-				updateFile(workbenchCSS, oldCSS, newCSS, context, 'oldCSS');
-
-				updateFile(workbenchJS, oldJS, newJS, context, 'oldJS');
-
-				vscode.window.showInformationMessage('Restart VS Code to see the changes', 'Reload').then(selection => {
-					if (selection === 'Reload') {
-						vscode.commands.executeCommand('workbench.action.reloadWindow');
-					}
-				});
-			}
 		});
 	});
 
@@ -106,11 +127,11 @@ async function checkIfContainsAsync(filename: string, str: string | undefined) {
 	}
 }
 
-function updateFile(filePath: string, oldText: any, newText: any, context: vscode.ExtensionContext, type: string) {
+function updateFile(filePath: string, oldText: any, newText: any) {
 	readFile(filePath, 'utf8', (err: any, data: string | any) => {
 		if (err) {
 			console.error(err);
-			return;
+			throw err;
 		}
 
 		let updatedData = data.replaceAll(
@@ -120,10 +141,12 @@ function updateFile(filePath: string, oldText: any, newText: any, context: vscod
 
 		writeFile(filePath, updatedData, 'utf8', (err: any) => {
 			if (err) {
-				console.error(err);
+				throw err;
 			} else {
 				console.log('File updated successfully');
-				context.globalState.update(type, newText);
+				let settings = readSettings();
+				settings = { currentFont: newText, defaultFont: settings!.defaultFont };
+				writeSettings(settings);
 			}
 		});
 	});
@@ -131,21 +154,6 @@ function updateFile(filePath: string, oldText: any, newText: any, context: vscod
 
 // This method is called when your extension is deactivated
 export function deactivate() {
-	if (process.platform !== 'win32') {
-		vscode.window.showInformationMessage('This extension only works on Windows');
-		return;
-	}
-
-	let oldCSS = extensionContext.globalState.get('oldCSS');
-	let oldJS = extensionContext.globalState.get('oldJS');
-
-	let defaultCSS = extensionContext.globalState.get('defaultCSS');
-	let defaultJS = extensionContext.globalState.get('defaultJS');
-
-	updateFile(workbenchCSS, oldCSS, defaultCSS, extensionContext, 'oldCSS');
-
-	updateFile(workbenchJS, oldJS, defaultJS, extensionContext, 'oldJS');
-
-	extensionContext.globalState.update('oldCSS', undefined);
-	extensionContext.globalState.update('oldJS', undefined);
+	console.log('Deactivating extension');
+	vscode.window.showInformationMessage('Reinstall VS Code to get default fonts back');
 }

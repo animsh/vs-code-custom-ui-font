@@ -2,7 +2,7 @@
   "name": "vs-code-custom-ui-font",
   "displayName": "VS Code Custom UI Font",
   "description": "An extension for replacing default UI font of VS Code.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "animsh",
   "engines": {
     "vscode": "^1.83.0"
